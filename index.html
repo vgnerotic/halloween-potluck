@@ -66,19 +66,17 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script>
   // --- Firebase config ---
-const firebaseConfig = {
-  apiKey: "AIzaSyC62lmq3vzrBhQxM-cfU0EW8fGLsKi2kaw",
-  authDomain: "potluck-b3403.firebaseapp.com",
-  projectId: "potluck-b3403",
-  storageBucket: "potluck-b3403.firebasestorage.app",
-  messagingSenderId: "809910637115",
-  appId: "1:809910637115:web:4d054ee730a030f200421e"
-};
+  const firebaseConfig = {
+    apiKey: "AIzaSyC62lmq3vzrBhQxM-cfU0EW8fGLsKi2kaw",
+    authDomain: "potluck-b3403.firebaseapp.com",
+    projectId: "potluck-b3403",
+    storageBucket: "potluck-b3403.firebasestorage.app",
+    messagingSenderId: "809910637115",
+    appId: "1:809910637115:web:4d054ee730a030f200421e"
+  };
 
   // --- Initialize Firebase ---
   firebase.initializeApp(firebaseConfig);
-    
-  // ... keep your existing SDK <script src=...> tags and firebaseConfig/init
 
   const auth = firebase.auth();
   const db = firebase.database();
@@ -101,7 +99,7 @@ const firebaseConfig = {
     submitBtn.disabled = !user;
     if (!user) return;
 
-    // 1) First do a one-time load of current data
+    // 1) One-time load of current data
     tbody.innerHTML = ""; // clear
     emptyRow = null;
     const snap = await itemsRef.once("value");
@@ -111,19 +109,15 @@ const firebaseConfig = {
       snap.forEach(child => renderRow(child.key, child.val()));
     }
 
-    // 2) Then attach live listeners (only once)
+    // 2) Attach live listeners (only once)
     if (!subscribed) {
       subscribed = true;
 
-      itemsRef.on("child_added",
-        s => {
-          // If row already exists in DOM, skip (prevents dupes)
-          if (!tbody.querySelector(`tr[data-key="${s.key}"]`)) {
-            renderRow(s.key, s.val());
-          }
-        },
-        err => console.error("listen child_added error:", err)
-      );
+      itemsRef.on("child_added", s => {
+        if (!tbody.querySelector(`tr[data-key="${s.key}"]`)) {
+          renderRow(s.key, s.val());
+        }
+      });
 
       itemsRef.on("child_removed", s => {
         const tr = tbody.querySelector(`tr[data-key="${s.key}"]`);
@@ -137,7 +131,6 @@ const firebaseConfig = {
           const v = s.val();
           tr.children[0].textContent = v.name;
           tr.children[1].textContent = v.item;
-          // ownership UI
           const canDelete = auth.currentUser && v.uid === auth.currentUser.uid;
           tr.children[2].textContent = "";
           if (canDelete) {
@@ -154,15 +147,20 @@ const firebaseConfig = {
     }
   });
 
-  auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e.code, e.message));
+  auth.signInAnonymously().catch(e =>
+    console.error("anon sign-in failed:", e.code, e.message)
+  );
 
   function renderRow(key, data) {
     if (emptyRow) { emptyRow.remove(); emptyRow = null; }
     const tr = document.createElement("tr");
     tr.dataset.key = key;
 
-    const tdName = document.createElement("td"); tdName.textContent = data.name;
-    const tdItem = document.createElement("td"); tdItem.textContent = data.item;
+    const tdName = document.createElement("td");
+    tdName.textContent = data.name;
+
+    const tdItem = document.createElement("td");
+    tdItem.textContent = data.item;
 
     const tdActions = document.createElement("td");
     const canDelete = auth.currentUser && data.uid === auth.currentUser.uid;
@@ -195,15 +193,20 @@ const firebaseConfig = {
 
   async function deleteItem(key) {
     if (!confirm("Delete this entry?")) return;
-    try { await itemsRef.child(key).remove(); }
-    catch (e) { alert("Error deleting: " + e.message); }
+    try {
+      await itemsRef.child(key).remove();
+    } catch (e) {
+      alert("Error deleting: " + e.message);
+    }
   }
 
-  // Submit → create
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const user = auth.currentUser;
-    if (!user) { alert("Still signing in — try again in a moment."); return; }
+    if (!user) {
+      alert("Still signing in — try again in a moment.");
+      return;
+    }
 
     const name = nameInput.value.trim();
     const item = itemInput.value.trim();
@@ -220,11 +223,9 @@ const firebaseConfig = {
   });
 </script>
 
-
-
-
 </body>
 </html>
+
 
 
 
