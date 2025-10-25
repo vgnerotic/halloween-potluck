@@ -65,7 +65,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script>
-  // 1) Your exact config (must include databaseURL)
+  // --- Firebase init (compat) ---
   const firebaseConfig = {
     apiKey: "…",
     authDomain: "potluck-b3403.firebaseapp.com",
@@ -75,32 +75,35 @@
     messagingSenderId: "809910637115",
     appId: "1:809910637115:web:4d054ee730a030f200421e"
   };
-
-  // 2) Single initialize (compat style)
   firebase.initializeApp(firebaseConfig);
 
-  // 3) Services
+  // --- Services ---
   const auth = firebase.auth();
   const db = firebase.database();
   const itemsRef = db.ref("potluck/items");
 
-  // 4) (If rules require auth) Anonymous sign-in + simple logging
-  auth.onAuthStateChanged(
-    u => console.log("auth user:", u && u.uid),
-    e => console.error("auth error:", e)
-  );
-  auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e));
-
-  // 5) DOM refs
+  // --- DOM refs ---
   const form = document.getElementById("form");
   const nameInput = document.getElementById("name");
   const itemInput = document.getElementById("bringing");
   const tbody = document.getElementById("tbody");
   let emptyRow = document.getElementById("empty-row");
+  const submitBtn = document.getElementById("btn");
 
-  // 6) Render helpers
+  // Disable submit until auth is ready (prevents race)
+  submitBtn.disabled = true;
+
+  // --- Auth: sign in anonymously, then enable the form ---
+  auth.onAuthStateChanged(user => {
+    console.log("auth user:", user && user.uid);
+    if (user) submitBtn.disabled = false;
+  }, err => console.error("auth error:", err));
+  auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e));
+
+  // --- Render helpers ---
   function renderRow(key, data) {
     if (emptyRow) { emptyRow.remove(); emptyRow = null; }
+
     const tr = document.createElement("tr");
     tr.dataset.key = key;
 
@@ -114,8 +117,15 @@
     const delBtn = document.createElement("button");
     delBtn.className = "btn btn-sm btn-outline-danger";
     delBtn.textContent = "DIE!!";
-    delBtn.addEventListener("click", () => deleteItem(key));
-    tdActions.appendChild(delBtn);
+
+    // Only show delete if you own the row (Rules will also enforce this)
+    const canDelete = auth.currentUser && data.uid === auth.currentUser.uid;
+    if (canDelete) {
+      delBtn.addEventListener("click", () => deleteItem(key));
+      tdActions.appendChild(delBtn);
+    } else {
+      tdActions.textContent = "—";
+    }
 
     tr.append(tdName, tdItem, tdActions);
     tbody.appendChild(tr);
@@ -128,7 +138,7 @@
     const c = document.createElement("td");
     c.colSpan = 3;
     c.className = "text-center muted";
-    c.textContent = "So apparently somebody wanted to be funny and deleted everything...";
+    c.textContent = "I swear there was something here...somebody must have deleted everything!";
     r.appendChild(c);
     tbody.appendChild(r);
     emptyRow = r;
@@ -143,36 +153,47 @@
     }
   }
 
-  // 7) Live listeners (single set)
-  itemsRef.on("child_added", snap => {
-    renderRow(snap.key, snap.val());
-  }, err => console.error("listen child_added error:", err));
-
+  // --- Live listeners ---
+  itemsRef.on("child_added", snap => renderRow(snap.key, snap.val()));
   itemsRef.on("child_removed", snap => {
     const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
     if (tr) tr.remove();
     showEmptyState();
   });
-
   itemsRef.on("child_changed", snap => {
     const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
     if (tr) {
-      tr.children[0].textContent = snap.val().name;
-      tr.children[1].textContent = snap.val().item;
+      const v = snap.val();
+      tr.children[0].textContent = v.name;
+      tr.children[1].textContent = v.item;
+      // Update ownership display
+      const canDelete = auth.currentUser && v.uid === auth.currentUser.uid;
+      tr.children[2].textContent = "";
+      if (canDelete) {
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn btn-sm btn-outline-danger";
+        delBtn.textContent = "DIE!!";
+        delBtn.addEventListener("click", () => deleteItem(snap.key));
+        tr.children[2].appendChild(delBtn);
+      } else {
+        tr.children[2].textContent = "—";
+      }
     }
   });
 
-  // 8) Submit → create
+  // --- Submit → create (must include uid that matches auth.uid) ---
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const user = auth.currentUser;
+    if (!user) { alert("Still signing in—try again in a moment."); return; }
+
     const name = nameInput.value.trim();
     const item = itemInput.value.trim();
     if (name.length < 2 || item.length < 2) return;
 
     try {
-      const uid = auth.currentUser ? auth.currentUser.uid : null; // ok if null when rules are open
       const ref = itemsRef.push();
-      await ref.set({ uid, name, item, createdAt: Date.now() });
+      await ref.set({ uid: user.uid, name, item, createdAt: Date.now() });
       form.reset();
     } catch (e) {
       console.error("write error:", e);
@@ -181,7 +202,9 @@
   });
 </script>
 
+
 </body>
 </html>
+
 
 
