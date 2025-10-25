@@ -78,12 +78,13 @@ const firebaseConfig = {
   // --- Initialize Firebase ---
   firebase.initializeApp(firebaseConfig);
 
-  // --- Services ---
+ <script>
+  // ... keep your existing SDK <script src=...> tags and firebaseConfig/init
+
   const auth = firebase.auth();
   const db = firebase.database();
   const itemsRef = db.ref("potluck/items");
 
-  // --- DOM elements ---
   const form = document.getElementById("form");
   const nameInput = document.getElementById("name");
   const itemInput = document.getElementById("bringing");
@@ -94,39 +95,82 @@ const firebaseConfig = {
   // Disable submit until signed in
   submitBtn.disabled = true;
 
-  // --- Anonymous sign-in ---
-  auth.onAuthStateChanged(user => {
-    if (user) {
-      console.log("✅ Signed in as:", user.uid);
-      submitBtn.disabled = false;
+  let subscribed = false; // prevent double-binding listeners
+
+  auth.onAuthStateChanged(async (user) => {
+    console.log("auth user:", user && user.uid);
+    submitBtn.disabled = !user;
+    if (!user) return;
+
+    // 1) First do a one-time load of current data
+    tbody.innerHTML = ""; // clear
+    emptyRow = null;
+    const snap = await itemsRef.once("value");
+    if (!snap.exists()) {
+      showEmptyState();
     } else {
-      console.log("❌ No user yet");
+      snap.forEach(child => renderRow(child.key, child.val()));
     }
-  }, err => console.error("Auth error:", err));
 
-  auth.signInAnonymously()
-      .catch(e => console.error("Anon sign-in failed:", e.code, e.message));
+    // 2) Then attach live listeners (only once)
+    if (!subscribed) {
+      subscribed = true;
 
-  // --- Helpers ---
+      itemsRef.on("child_added",
+        s => {
+          // If row already exists in DOM, skip (prevents dupes)
+          if (!tbody.querySelector(`tr[data-key="${s.key}"]`)) {
+            renderRow(s.key, s.val());
+          }
+        },
+        err => console.error("listen child_added error:", err)
+      );
+
+      itemsRef.on("child_removed", s => {
+        const tr = tbody.querySelector(`tr[data-key="${s.key}"]`);
+        if (tr) tr.remove();
+        showEmptyState();
+      });
+
+      itemsRef.on("child_changed", s => {
+        const tr = tbody.querySelector(`tr[data-key="${s.key}"]`);
+        if (tr) {
+          const v = s.val();
+          tr.children[0].textContent = v.name;
+          tr.children[1].textContent = v.item;
+          // ownership UI
+          const canDelete = auth.currentUser && v.uid === auth.currentUser.uid;
+          tr.children[2].textContent = "";
+          if (canDelete) {
+            const delBtn = document.createElement("button");
+            delBtn.className = "btn btn-sm btn-outline-danger";
+            delBtn.textContent = "Delete";
+            delBtn.addEventListener("click", () => deleteItem(s.key));
+            tr.children[2].appendChild(delBtn);
+          } else {
+            tr.children[2].textContent = "—";
+          }
+        }
+      });
+    }
+  });
+
+  auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e.code, e.message));
+
   function renderRow(key, data) {
     if (emptyRow) { emptyRow.remove(); emptyRow = null; }
-
     const tr = document.createElement("tr");
     tr.dataset.key = key;
 
-    const tdName = document.createElement("td");
-    tdName.textContent = data.name;
-
-    const tdItem = document.createElement("td");
-    tdItem.textContent = data.item;
+    const tdName = document.createElement("td"); tdName.textContent = data.name;
+    const tdItem = document.createElement("td"); tdItem.textContent = data.item;
 
     const tdActions = document.createElement("td");
     const canDelete = auth.currentUser && data.uid === auth.currentUser.uid;
-
     if (canDelete) {
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-sm btn-outline-danger";
-      delBtn.textContent = "DIE!!";
+      delBtn.textContent = "Delete";
       delBtn.addEventListener("click", () => deleteItem(key));
       tdActions.appendChild(delBtn);
     } else {
@@ -135,15 +179,6 @@ const firebaseConfig = {
 
     tr.append(tdName, tdItem, tdActions);
     tbody.appendChild(tr);
-  }
-
-  async function deleteItem(key) {
-    if (!confirm("Be so fr.")) return;
-    try {
-      await itemsRef.child(key).remove();
-    } catch (err) {
-      alert("Error deleting: " + err.message);
-    }
   }
 
   function showEmptyState() {
@@ -159,19 +194,17 @@ const firebaseConfig = {
     emptyRow = r;
   }
 
-  // --- Live listeners ---
-  itemsRef.on("child_added", s => renderRow(s.key, s.val()));
-  itemsRef.on("child_removed", s => {
-    const tr = tbody.querySelector(`tr[data-key="${s.key}"]`);
-    if (tr) tr.remove();
-    showEmptyState();
-  });
+  async function deleteItem(key) {
+    if (!confirm("Delete this entry?")) return;
+    try { await itemsRef.child(key).remove(); }
+    catch (e) { alert("Error deleting: " + e.message); }
+  }
 
-  // --- Submit handler ---
-  form.addEventListener("submit", async e => {
+  // Submit → create
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const user = auth.currentUser;
-    if (!user) { alert("Still signing in — try again in a second."); return; }
+    if (!user) { alert("Still signing in — try again in a moment."); return; }
 
     const name = nameInput.value.trim();
     const item = itemInput.value.trim();
@@ -181,9 +214,9 @@ const firebaseConfig = {
       const ref = itemsRef.push();
       await ref.set({ uid: user.uid, name, item, createdAt: Date.now() });
       form.reset();
-    } catch (err) {
-      console.error("Write error:", err);
-      alert("Write failed: " + err.message);
+    } catch (e) {
+      console.error("write error:", e);
+      alert("Write failed: " + e.message);
     }
   });
 </script>
@@ -193,6 +226,7 @@ const firebaseConfig = {
 
 </body>
 </html>
+
 
 
 
