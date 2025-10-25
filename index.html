@@ -65,135 +65,123 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script>
+  // 1) Your exact config (must include databaseURL)
+  const firebaseConfig = {
+    apiKey: "…",
+    authDomain: "potluck-b3403.firebaseapp.com",
+    databaseURL: "https://potluck-b3403-default-rtdb.firebaseio.com",
+    projectId: "potluck-b3403",
+    storageBucket: "potluck-b3403.firebasestorage.app",
+    messagingSenderId: "809910637115",
+    appId: "1:809910637115:web:4d054ee730a030f200421e"
+  };
+
+  // 2) Single initialize (compat style)
   firebase.initializeApp(firebaseConfig);
 
+  // 3) Services
   const auth = firebase.auth();
   const db = firebase.database();
   const itemsRef = db.ref("potluck/items");
 
-  // Log auth issues (e.g., unauthorized domain)
-  auth.onAuthStateChanged(u => console.log("auth user:", u && u.uid), e => console.error("auth error:", e));
-
-  // If you’re using rules that require auth, make sure we actually sign in:
+  // 4) (If rules require auth) Anonymous sign-in + simple logging
+  auth.onAuthStateChanged(
+    u => console.log("auth user:", u && u.uid),
+    e => console.error("auth error:", e)
+  );
   auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e));
 
-  // When submitting:
-  async function addItem(name, item) {
+  // 5) DOM refs
+  const form = document.getElementById("form");
+  const nameInput = document.getElementById("name");
+  const itemInput = document.getElementById("bringing");
+  const tbody = document.getElementById("tbody");
+  let emptyRow = document.getElementById("empty-row");
+
+  // 6) Render helpers
+  function renderRow(key, data) {
+    if (emptyRow) { emptyRow.remove(); emptyRow = null; }
+    const tr = document.createElement("tr");
+    tr.dataset.key = key;
+
+    const tdName = document.createElement("td");
+    tdName.textContent = data.name;
+
+    const tdItem = document.createElement("td");
+    tdItem.textContent = data.item;
+
+    const tdActions = document.createElement("td");
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btn-sm btn-outline-danger";
+    delBtn.textContent = "DIE!!";
+    delBtn.addEventListener("click", () => deleteItem(key));
+    tdActions.appendChild(delBtn);
+
+    tr.append(tdName, tdItem, tdActions);
+    tbody.appendChild(tr);
+  }
+
+  function showEmptyState() {
+    if (tbody.querySelector("tr")) return;
+    const r = document.createElement("tr");
+    r.id = "empty-row";
+    const c = document.createElement("td");
+    c.colSpan = 3;
+    c.className = "text-center muted";
+    c.textContent = "So apparently somebody wanted to be funny and deleted everything...";
+    r.appendChild(c);
+    tbody.appendChild(r);
+    emptyRow = r;
+  }
+
+  async function deleteItem(key) {
+    if (!confirm("Be so fr.")) return;
     try {
-      const uid = auth.currentUser ? auth.currentUser.uid : null;
+      await itemsRef.child(key).remove();
+    } catch (e) {
+      alert("Error deleting: " + e.message);
+    }
+  }
+
+  // 7) Live listeners (single set)
+  itemsRef.on("child_added", snap => {
+    renderRow(snap.key, snap.val());
+  }, err => console.error("listen child_added error:", err));
+
+  itemsRef.on("child_removed", snap => {
+    const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
+    if (tr) tr.remove();
+    showEmptyState();
+  });
+
+  itemsRef.on("child_changed", snap => {
+    const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
+    if (tr) {
+      tr.children[0].textContent = snap.val().name;
+      tr.children[1].textContent = snap.val().item;
+    }
+  });
+
+  // 8) Submit → create
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    const item = itemInput.value.trim();
+    if (name.length < 2 || item.length < 2) return;
+
+    try {
+      const uid = auth.currentUser ? auth.currentUser.uid : null; // ok if null when rules are open
       const ref = itemsRef.push();
       await ref.set({ uid, name, item, createdAt: Date.now() });
-      console.log("write ok:", ref.key);
+      form.reset();
     } catch (e) {
       console.error("write error:", e);
       alert("Write failed: " + e.message);
     }
-  }
-
-  // Also log listener errors (permissions, etc.)
-  itemsRef.on("child_added", snap => {
-    // render row...
-  }, err => console.error("listen error:", err));
-    const firebaseConfig = {
-        apiKey: "…",
-        authDomain: "potluck-b3403.firebaseapp.com",
-        databaseURL: "https://potluck-b3403-default-rtdb.firebaseio.com",  // ← add this
-        projectId: "potluck-b3403",
-        storageBucket: "potluck-b3403.firebasestorage.app",
-        messagingSenderId: "809910637115",
-        appId: "1:809910637115:web:4d054ee730a030f200421e"
-    };
-
-
-    // Initialize Firebase (compat)
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
-    const itemsRef = db.ref("potluck/items");
-
-
-    // DOM refs
-    const form = document.getElementById("form");
-    const nameInput = document.getElementById("name");
-    const itemInput = document.getElementById("bringing");
-    const tbody = document.getElementById("tbody");
-    const emptyRow = document.getElementById("empty-row");
-
-    // Submit handler — create
-    form.addEventListener("submit", function (e) {
-        e.preventDefault();
-        const name = nameInput.value.trim();
-        const item = itemInput.value.trim();
-        if (name.length < 2 || item.length < 2) return;
-
-        // Push new record
-        const newRef = itemsRef.push();
-        newRef.set({ name, item, createdAt: Date.now() })
-            .then(() => form.reset())
-            .catch((err) => alert("Error adding item: " + err.message));
-    });
-
-    // Render a row
-    function renderRow(key, data) {
-        // remove empty state if present
-        if (emptyRow) emptyRow.remove();
-
-        const tr = document.createElement("tr");
-        tr.dataset.key = key;
-
-        const tdName = document.createElement("td");
-        tdName.textContent = data.name;
-
-        const tdItem = document.createElement("td");
-        tdItem.textContent = data.item;
-
-        const tdActions = document.createElement("td");
-        const delBtn = document.createElement("button");
-        delBtn.className = "btn btn-sm btn-outline-danger";
-        delBtn.textContent = "DIE!!";
-        delBtn.addEventListener("click", () => deleteItem(key));
-        tdActions.appendChild(delBtn);
-
-        tr.appendChild(tdName);
-        tr.appendChild(tdItem);
-        tr.appendChild(tdActions);
-
-        tbody.appendChild(tr);
-    }
-
-    // Delete handler
-    function deleteItem(key) {
-        if (!confirm("Be so fr.")) return;
-        itemsRef.child(key).remove().catch((err) => alert("Error deleting: " + err.message));
-    }
-
-    // Live listeners — add/remove/update rows in real time
-    itemsRef.on("child_added", (snap) => {
-        renderRow(snap.key, snap.val());
-    });
-
-    itemsRef.on("child_removed", (snap) => {
-        const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
-        if (tr) tr.remove();
-        if (!tbody.querySelector("tr")) {
-            const r = document.createElement("tr");
-            r.id = "empty-row";
-            const c = document.createElement("td");
-            c.colSpan = 3; c.className = "text-center muted";
-            c.textContent = "There used to be something here I swear! Somebody had to have deleted everything...";
-            r.appendChild(c);
-            tbody.appendChild(r);
-        }
-    });
-
-    itemsRef.on("child_changed", (snap) => {
-        // Optional: implement edit flow later
-        const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
-        if (tr) {
-            tr.children[0].textContent = snap.val().name;
-            tr.children[1].textContent = snap.val().item;
-        }
-    });
+  });
 </script>
+
 </body>
 </html>
+
 
