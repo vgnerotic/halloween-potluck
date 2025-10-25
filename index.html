@@ -65,19 +65,22 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script>
-  /* ----------  Firebase setup  ---------- */
-  const firebaseConfig = {
-    apiKey: "AIzaSyC62lmq3vzrBhQxM-cfU0EW8fGLsKi2kaw",
-    authDomain: "potluck-b3403.firebaseapp.com",
-    databaseURL: "https://potluck-b3403-default-rtdb.firebaseio.com",
-    projectId: "potluck-b3403",
-    storageBucket: "potluck-b3403.firebasestorage.app",
-    messagingSenderId: "809910637115",
-    appId: "1:809910637115:web:4d054ee730a030f200421e"
-  };
+  // --- Firebase config ---
+const firebaseConfig = {
+  apiKey: "AIzaSyC62lmq3vzrBhQxM-cfU0EW8fGLsKi2kaw",
+  authDomain: "potluck-b3403.firebaseapp.com",
+  projectId: "potluck-b3403",
+  storageBucket: "potluck-b3403.firebasestorage.app",
+  messagingSenderId: "809910637115",
+  appId: "1:809910637115:web:4d054ee730a030f200421e"
+};
+
+  // --- Initialize Firebase ---
   firebase.initializeApp(firebaseConfig);
 
-  /* ----------  Services & DOM refs  ---------- */
+ <script>
+  // ... keep your existing SDK <script src=...> tags and firebaseConfig/init
+
   const auth = firebase.auth();
   const db = firebase.database();
   const itemsRef = db.ref("potluck/items");
@@ -89,64 +92,97 @@
   const submitBtn = document.getElementById("btn");
   let emptyRow = document.getElementById("empty-row");
 
+  // Disable submit until signed in
   submitBtn.disabled = true;
 
-  /* ----------  Auth  ---------- */
-  auth.onAuthStateChanged(user => {
+  let subscribed = false; // prevent double-binding listeners
+
+  auth.onAuthStateChanged(async (user) => {
     console.log("auth user:", user && user.uid);
     submitBtn.disabled = !user;
-    if (user && !window._subscribed) {
-      window._subscribed = true;
-      attachListeners();
+    if (!user) return;
+
+    // 1) First do a one-time load of current data
+    tbody.innerHTML = ""; // clear
+    emptyRow = null;
+    const snap = await itemsRef.once("value");
+    if (!snap.exists()) {
+      showEmptyState();
+    } else {
+      snap.forEach(child => renderRow(child.key, child.val()));
+    }
+
+    // 2) Then attach live listeners (only once)
+    if (!subscribed) {
+      subscribed = true;
+
+      itemsRef.on("child_added",
+        s => {
+          // If row already exists in DOM, skip (prevents dupes)
+          if (!tbody.querySelector(`tr[data-key="${s.key}"]`)) {
+            renderRow(s.key, s.val());
+          }
+        },
+        err => console.error("listen child_added error:", err)
+      );
+
+      itemsRef.on("child_removed", s => {
+        const tr = tbody.querySelector(`tr[data-key="${s.key}"]`);
+        if (tr) tr.remove();
+        showEmptyState();
+      });
+
+      itemsRef.on("child_changed", s => {
+        const tr = tbody.querySelector(`tr[data-key="${s.key}"]`);
+        if (tr) {
+          const v = s.val();
+          tr.children[0].textContent = v.name;
+          tr.children[1].textContent = v.item;
+          // ownership UI
+          const canDelete = auth.currentUser && v.uid === auth.currentUser.uid;
+          tr.children[2].textContent = "";
+          if (canDelete) {
+            const delBtn = document.createElement("button");
+            delBtn.className = "btn btn-sm btn-outline-danger";
+            delBtn.textContent = "Delete";
+            delBtn.addEventListener("click", () => deleteItem(s.key));
+            tr.children[2].appendChild(delBtn);
+          } else {
+            tr.children[2].textContent = "—";
+          }
+        }
+      });
     }
   });
-  auth.signInAnonymously().catch(e =>
-    console.error("anon sign-in failed:", e.code, e.message)
-  );
 
-  /* ----------  Live listeners  ---------- */
-  function attachListeners() {
-    itemsRef.on("value", snap => {
-      tbody.innerHTML = "";
-      emptyRow = null;
-      if (!snap.exists()) return showEmptyState();
+  auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e.code, e.message));
 
-      const data = snap.val();
-      // Sort oldest→newest
-      const rows = Object.entries(data).sort(
-        (a, b) => (a[1]?.createdAt || 0) - (b[1]?.createdAt || 0)
-      );
-      for (const [key, val] of rows) renderRow(key, val || {});
-    });
-  }
-
-  /* ----------  Render helpers  ---------- */
   function renderRow(key, data) {
     if (emptyRow) { emptyRow.remove(); emptyRow = null; }
     const tr = document.createElement("tr");
     tr.dataset.key = key;
 
-    const tdName = document.createElement("td");
-    tdName.textContent = data.name ?? "";
-
-    const tdItem = document.createElement("td");
-    tdItem.textContent = data.item ?? "";
+    const tdName = document.createElement("td"); tdName.textContent = data.name;
+    const tdItem = document.createElement("td"); tdItem.textContent = data.item;
 
     const tdActions = document.createElement("td");
-    const me = auth.currentUser?.uid;
-    if (me && data.uid === me) {
+    const canDelete = auth.currentUser && data.uid === auth.currentUser.uid;
+    if (canDelete) {
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-sm btn-outline-danger";
       delBtn.textContent = "Delete";
-      delBtn.onclick = () => deleteItem(key);
+      delBtn.addEventListener("click", () => deleteItem(key));
       tdActions.appendChild(delBtn);
-    } else tdActions.textContent = "—";
+    } else {
+      tdActions.textContent = "—";
+    }
 
     tr.append(tdName, tdItem, tdActions);
     tbody.appendChild(tr);
   }
 
   function showEmptyState() {
+    if (tbody.querySelector("tr")) return;
     const r = document.createElement("tr");
     r.id = "empty-row";
     const c = document.createElement("td");
@@ -164,11 +200,12 @@
     catch (e) { alert("Error deleting: " + e.message); }
   }
 
-  /* ----------  Submit handler  ---------- */
-  form.addEventListener("submit", async e => {
+  // Submit → create
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const user = auth.currentUser;
-    if (!user) return alert("Still signing in — try again in a moment.");
+    if (!user) { alert("Still signing in — try again in a moment."); return; }
+
     const name = nameInput.value.trim();
     const item = itemInput.value.trim();
     if (name.length < 2 || item.length < 2) return;
@@ -177,15 +214,15 @@
       const ref = itemsRef.push();
       await ref.set({ uid: user.uid, name, item, createdAt: Date.now() });
       form.reset();
-    } catch (err) {
-      console.error("write error:", err);
-      alert("Write failed: " + err.message);
+    } catch (e) {
+      console.error("write error:", e);
+      alert("Write failed: " + e.message);
     }
   });
 </script>
-
 </body>
 </html>
+
 
 
 
