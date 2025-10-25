@@ -167,7 +167,7 @@
     if (canDelete) {
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-sm btn-outline-danger";
-      delBtn.textContent = "Delete";
+      delBtn.textContent = "DIE!!";
       delBtn.addEventListener("click", () => deleteItem(key));
       tdActions.appendChild(delBtn);
     } else {
@@ -185,14 +185,15 @@
     const c = document.createElement("td");
     c.colSpan = 3;
     c.className = "text-center muted";
-    c.textContent = "Nobody’s bringing anything yet 👻";
+    c.textContent = "Nobody is bringing a single thing yet. (You're number 1!!!)...but I'm pretty sure some items have been deleted...👻";
     r.appendChild(c);
     tbody.appendChild(r);
     emptyRow = r;
+    form.reset();
   }
 
   async function deleteItem(key) {
-    if (!confirm("Delete this entry?")) return;
+    if (!confirm("Be so fr. Why are you deleting this?")) return;
     try {
       await itemsRef.child(key).remove();
     } catch (e) {
@@ -225,6 +226,7 @@
 
 </body>
 </html>
+
 
 
 
