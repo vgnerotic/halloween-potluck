@@ -61,13 +61,39 @@
     </div>
 </div>
 
-<!-- Firebase (Compat SDK for simplicity) -->
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-
 <script>
-    // Import the functions you need from the SDKs you need
+  firebase.initializeApp(firebaseConfig);
 
+  const auth = firebase.auth();
+  const db = firebase.database();
+  const itemsRef = db.ref("potluck/items");
+
+  // Log auth issues (e.g., unauthorized domain)
+  auth.onAuthStateChanged(u => console.log("auth user:", u && u.uid), e => console.error("auth error:", e));
+
+  // If you’re using rules that require auth, make sure we actually sign in:
+  auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e));
+
+  // When submitting:
+  async function addItem(name, item) {
+    try {
+      const uid = auth.currentUser ? auth.currentUser.uid : null;
+      const ref = itemsRef.push();
+      await ref.set({ uid, name, item, createdAt: Date.now() });
+      console.log("write ok:", ref.key);
+    } catch (e) {
+      console.error("write error:", e);
+      alert("Write failed: " + e.message);
+    }
+  }
+
+  // Also log listener errors (permissions, etc.)
+  itemsRef.on("child_added", snap => {
+    // render row...
+  }, err => console.error("listen error:", err));
     const firebaseConfig = {
         apiKey: "…",
         authDomain: "potluck-b3403.firebaseapp.com",
@@ -170,3 +196,4 @@
 </script>
 </body>
 </html>
+
