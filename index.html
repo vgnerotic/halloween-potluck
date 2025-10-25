@@ -65,43 +65,50 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script>
-  // --- Firebase init (compat) ---
+  // --- Firebase config ---
   const firebaseConfig = {
     apiKey: "…",
     authDomain: "potluck-b3403.firebaseapp.com",
-    databaseURL: "https://potluck-b3403-default-rtdb.firebaseio.com", // no trailing slash is fine
+    databaseURL: "https://potluck-b3403-default-rtdb.firebaseio.com",
     projectId: "potluck-b3403",
     storageBucket: "potluck-b3403.firebasestorage.app",
     messagingSenderId: "809910637115",
     appId: "1:809910637115:web:4d054ee730a030f200421e"
   };
+
+  // --- Initialize Firebase ---
   firebase.initializeApp(firebaseConfig);
 
-  // --- Services (declare ONCE) ---
+  // --- Services ---
   const auth = firebase.auth();
   const db = firebase.database();
   const itemsRef = db.ref("potluck/items");
 
-  // --- DOM refs ---
+  // --- DOM elements ---
   const form = document.getElementById("form");
   const nameInput = document.getElementById("name");
   const itemInput = document.getElementById("bringing");
   const tbody = document.getElementById("tbody");
-  let emptyRow = document.getElementById("empty-row");
   const submitBtn = document.getElementById("btn");
+  let emptyRow = document.getElementById("empty-row");
 
-  // Disable submit until auth is ready (prevents race)
+  // Disable submit until signed in
   submitBtn.disabled = true;
 
-  // --- Auth: sign in anonymously, then enable the form ---
+  // --- Anonymous sign-in ---
   auth.onAuthStateChanged(user => {
-    console.log("auth user:", user && user.uid);
-    submitBtn.disabled = !user;
-  }, err => console.error("auth error:", err));
+    if (user) {
+      console.log("✅ Signed in as:", user.uid);
+      submitBtn.disabled = false;
+    } else {
+      console.log("❌ No user yet");
+    }
+  }, err => console.error("Auth error:", err));
 
-  auth.signInAnonymously().catch(e => console.error("anon sign-in failed:", e.code, e.message));
+  auth.signInAnonymously()
+      .catch(e => console.error("Anon sign-in failed:", e.code, e.message));
 
-  // --- Render helpers ---
+  // --- Helpers ---
   function renderRow(key, data) {
     if (emptyRow) { emptyRow.remove(); emptyRow = null; }
 
@@ -115,13 +122,12 @@
     tdItem.textContent = data.item;
 
     const tdActions = document.createElement("td");
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn btn-sm btn-outline-danger";
-    delBtn.textContent = "DIE!!";
-
-    // Only show delete if you own the row
     const canDelete = auth.currentUser && data.uid === auth.currentUser.uid;
+
     if (canDelete) {
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn btn-sm btn-outline-danger";
+      delBtn.textContent = "DIE!!";
       delBtn.addEventListener("click", () => deleteItem(key));
       tdActions.appendChild(delBtn);
     } else {
@@ -132,6 +138,15 @@
     tbody.appendChild(tr);
   }
 
+  async function deleteItem(key) {
+    if (!confirm("Be so fr.")) return;
+    try {
+      await itemsRef.child(key).remove();
+    } catch (err) {
+      alert("Error deleting: " + err.message);
+    }
+  }
+
   function showEmptyState() {
     if (tbody.querySelector("tr")) return;
     const r = document.createElement("tr");
@@ -139,56 +154,25 @@
     const c = document.createElement("td");
     c.colSpan = 3;
     c.className = "text-center muted";
-    c.textContent = "I swear there was something here...somebody must have deleted everything!";
+    c.textContent = "Nobody’s bringing anything yet 👻";
     r.appendChild(c);
     tbody.appendChild(r);
     emptyRow = r;
   }
 
-  async function deleteItem(key) {
-    if (!confirm("Be so fr.")) return;
-    try {
-      await itemsRef.child(key).remove();
-    } catch (e) {
-      alert("Error deleting: " + e.message);
-    }
-  }
-
   // --- Live listeners ---
-  itemsRef.on("child_added", snap => renderRow(snap.key, snap.val()),
-              err => console.error("listen child_added error:", err));
-  itemsRef.on("child_removed", snap => {
-    const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
+  itemsRef.on("child_added", s => renderRow(s.key, s.val()));
+  itemsRef.on("child_removed", s => {
+    const tr = tbody.querySelector(`tr[data-key="${s.key}"]`);
     if (tr) tr.remove();
     showEmptyState();
   });
-  itemsRef.on("child_changed", snap => {
-    const tr = tbody.querySelector(`tr[data-key="${snap.key}"]`);
-    if (tr) {
-      const v = snap.val();
-      tr.children[0].textContent = v.name;
-      tr.children[1].textContent = v.item;
 
-      // Update ownership display
-      tr.children[2].textContent = "";
-      const canDelete = auth.currentUser && v.uid === auth.currentUser.uid;
-      if (canDelete) {
-        const delBtn = document.createElement("button");
-        delBtn.className = "btn btn-sm btn-outline-danger";
-        delBtn.textContent = "DIE!!";
-        delBtn.addEventListener("click", () => deleteItem(snap.key));
-        tr.children[2].appendChild(delBtn);
-      } else {
-        tr.children[2].textContent = "—";
-      }
-    }
-  });
-
-  // --- Submit → create (must include uid that matches auth.uid) ---
-  form.addEventListener("submit", async (e) => {
+  // --- Submit handler ---
+  form.addEventListener("submit", async e => {
     e.preventDefault();
     const user = auth.currentUser;
-    if (!user) { alert("Still signing in—try again in a moment."); return; }
+    if (!user) { alert("Still signing in — try again in a second."); return; }
 
     const name = nameInput.value.trim();
     const item = itemInput.value.trim();
@@ -198,20 +182,19 @@
       const ref = itemsRef.push();
       await ref.set({ uid: user.uid, name, item, createdAt: Date.now() });
       form.reset();
-    } catch (e) {
-      console.error("write error:", e);
-      alert("Write failed: " + e.message);
+    } catch (err) {
+      console.error("Write error:", err);
+      alert("Write failed: " + err.message);
     }
   });
-
-  // Optional: show JS errors early if something else breaks
-  window.addEventListener('error', ev => console.error('JS error:', ev.message));
 </script>
+
 
 
 
 </body>
 </html>
+
 
 
 
